@@ -21,7 +21,7 @@ def lookup_stock_symbol(company_name: str) -> str:
     api_url = "https://www.alphavantage.co/query"
     params = {
         "function": "SYMBOL_SEARCH",
-        "keyword": company_name,
+        "keywords": company_name,
         "apikey": "FWPXO31AYP17JABO"
     }
 
@@ -34,7 +34,7 @@ def lookup_stock_symbol(company_name: str) -> str:
     function=SYMBOL_SEARCH&key_word=Apple&apikey=FWPXO31AYP17JABO'''
 
     if "bestMatches" in data and data["bestMatches"]:  # the bestMatch checks Does the key "bestMatches" even exist in the response which is provided in JSON formate 
-        return data["bestMatchs"][0]["1. symbol"]  
+        return data["bestMatches"][0]["1. symbol"]  
     else:
         return f"symbol not found for {company_name}."
     
