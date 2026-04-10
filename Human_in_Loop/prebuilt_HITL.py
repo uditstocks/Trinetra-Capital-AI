@@ -1,3 +1,9 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+
+
 import requests
 from langchain_nvidia import ChatNVIDIA
 from langchain.agents import create_agent
@@ -9,6 +15,8 @@ import yfinance as yf
 from pprint import pformat
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langgraph.types import Command
+import json
+from datetime import datetime
 
 # DEFINING TOOLS
 
@@ -22,7 +30,7 @@ def lookup_stock_symbol(company_name: str) -> str:
     params = {
         "function": "SYMBOL_SEARCH",
         "keywords": company_name,
-        "apikey": "ENTER_YOUR_APIKEY"
+        "apikey": os.getenv("ALPHA_VANTAGE_KEY")
     }
 
     response = requests.get(api_url, params = params)
@@ -45,19 +53,28 @@ def fetch_stock_data_raw(stock_symbol: str) -> dict:
     Fetches stock data for a given symbol and returns it as a combined dictionary.
     """
 
-    period = "1mo"
+    period = "5d"
 
     try:
         stock = yf.Ticker(stock_symbol)
 
         # Retrieve general stock info and historical market data
-        stock_info = stock.info  # basic company and stock data
-        stock_history = stock.history(period=period).to_dict()
+        info = stock.info
+        history = stock.history(period=period)
 
         combined_data = {
             "stock_symbol": stock_symbol,
-            "info": stock_info,
-            "history": stock_history 
+            "company_name": info.get("longName"),
+            "sector": info.get("sector"),
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "52w_high": info.get("fiftyTwoWeekHigh"),
+            "52w_low": info.get("fiftyTwoWeekLow"),
+            "latest_price": round(history["Close"].iloc[-1], 2),
+            "prev_close": round(history["Close"].iloc[-2], 2),
+            "change_pct": round(((history["Close"].iloc[-1] - history["Close"].iloc[-2]) / history["Close"].iloc[-2]) * 100, 2),
+            "5d_high": round(history["High"].max(), 2),
+            "5d_low": round(history["Low"].min(), 2), 
         }
 
         return pformat(combined_data)
@@ -65,6 +82,27 @@ def fetch_stock_data_raw(stock_symbol: str) -> dict:
     except Exception as e:
         return {"error": f"ERROR fetching stock data for {stock_symbol}: {str(e)}"}
     
+
+PORTFOLIO_FILE = "portfolio.json"
+
+def load_portfolio():
+    if not os.path.exists(PORTFOLIO_FILE):
+        return []
+    with open(PORTFOLIO_FILE, "r") as f:
+        return json.load(f)
+    
+def save_portfolio(portfolio):
+    with open(PORTFOLIO_FILE, "w") as f:
+        json.dump(portfolio, f, indent=2)
+
+@tool("view_portfolio")
+def view_portfolio() -> str:
+    """View all current holdings and trade history."""
+    portfolio = load_portfolio()
+    if not portfolio:
+        return "Portfolio is empty."
+    return pformat(portfolio)
+
 
 @tool("place_order")
 def place_order(
@@ -96,6 +134,19 @@ order_type: str = "limit"
 
     """
     total_spent = round(int(shares) * limit_price, 2)
+    
+    # log the trade
+    portfolio = load_portfolio()
+    portfolio.append({
+        "timestamp": datetime.now().isoformat(),
+        "symbol": symbol,
+        "action": action,
+        "shares": int(shares),
+        "price": limit_price,
+        "total": total_spent
+    })
+    save_portfolio(portfolio)
+
     return {
         "status": "filled",
         "symbol": symbol,
@@ -127,7 +178,7 @@ Behavior:
 # LLM
 llm = ChatNVIDIA(
   model="nvidia/nemotron-3-super-120b-a12b",
-  api_key="ENTER_YOUR_APIKEY", 
+  api_key = os.getenv("NVIDIA_API_KEY"), 
   temperature=1,
   model_kwargs={
         "chat_template_kwargs": {
@@ -168,54 +219,70 @@ interrupt_on = {tool: True for tool in RISKY_TOOLS}
 
 agent = create_agent(
     model = llm,
-    tools = [lookup_stock_symbol, fetch_stock_data_raw, place_order],
+    tools = [lookup_stock_symbol, fetch_stock_data_raw, place_order, view_portfolio],
     system_prompt = system_message,
     middleware=[HumanInTheLoopMiddleware(interrupt_on = interrupt_on)],
     checkpointer = InMemorySaver()
              
 )
 
-
-config = {"configurable": {"thread_id": "1"}}
-
-# ── Step 1: Run until interrupt ──
-result = agent.invoke(
-    {"messages": [HumanMessage(content="Buy $1000 of Apple stock at the current price.")]},
-    config=config,
-)
-
-interrupts = result.get("__interrupt__", [])
-
-# ── Step 2: Show interrupt details ──
 def print_tool_approval(interrupts):
     for intr in interrupts:
         print("--- Approval needed ---")
+        # ✅ Correct fix — only change "arguments" → "args"
         action_requests = intr.value.get("action_requests", [])
         for action in action_requests:
             print(f"Tool: {action['name']}")
-            args = action.get("arguments", {})
+            print(f"Description: {action.get('description', '')}")  
+            args = action.get("args", {})       
             if args:
                 print("Parameters:")
                 for k, v in args.items():
                     print(f"  - {k}: {v}")
 
-print_tool_approval(interrupts)
 
-# ── Step 3: Approve or Reject ──
+config = {"configurable": {"thread_id": "1"}}
 
-# APPROVE:
-response = agent.invoke(
-    Command(resume={"decisions": [{"type": "approve"}]}),
-    config=config,
-)
+while True:
 
-# REJECT (uncomment to use):
-# response = agent.invoke(
-#     Command(resume={"decisions": [{"type": "reject", "message": "Too risky."}]}),
-#     config=config,
-#     version="v2"
-# )
+    command = input("Command sir! what do you want me to do: ")
 
-for message in response["messages"]:
-    message.pretty_print()
+    if command.lower() in ("exit", "quit"):
+        break
+
+    # ── Step 1: Run until interrupt ──
+    result = agent.invoke(
+        {"messages": [HumanMessage(content = command )]},
+        config=config,
+    )
+
+    interrupts = result.get("__interrupt__", [])
+
+    # ── Step 2: Show interrupt details ──
+
+
+    print_tool_approval(interrupts)
+
+    # ── Step 3: Approve or Reject ──
+
+    if interrupts:
+        user_input = input("\n⚠️ Approve this action? (yes/no): ").strip().lower()
+
+        if user_input == "yes":
+            decision = {"type": "approve"}
+            print("✅ Order approved. Executing...")
+
+        else:
+            decision = {"type": "reject"}
+            print("❌ Order rejected.")
+
+        response = agent.invoke(Command(resume = {"decisions": [decision]}), config = config)
+
+        for message in response["messages"]:
+            message.pretty_print()
+
+    else:
+        # No interrupt happened (no risky tool was called)
+        for message in result["messages"]:
+            message.pretty_print()
 
