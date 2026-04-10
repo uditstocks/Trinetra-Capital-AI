@@ -22,7 +22,7 @@ def lookup_stock_symbol(company_name: str) -> str:
     params = {
         "function": "SYMBOL_SEARCH",
         "keywords": company_name,
-        "apikey": "FWPXO31AYP17JABO"
+        "apikey": "ENTER_YOUR_APIKEY"
     }
 
     response = requests.get(api_url, params = params)

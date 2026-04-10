@@ -22,7 +22,7 @@ def lookup_stock_symbol(company_name: str) -> str:
     params = {
         "function": "SYMBOL_SEARCH",
         "keywords": company_name,
-        "apikey": "FWPXO31AYP17JABO"
+        "apikey": "ENTER_YOUR_APIKEY"
     }
 
     response = requests.get(api_url, params = params)
@@ -127,7 +127,7 @@ Behavior:
 # LLM
 llm = ChatNVIDIA(
   model="nvidia/nemotron-3-super-120b-a12b",
-  api_key="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", 
+  api_key="ENTER_YOUR_APIKEY", 
   temperature=1,
   model_kwargs={
         "chat_template_kwargs": {
