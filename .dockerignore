@@ -1,0 +1,6 @@
+prebuilt_basics/
+.env
+__pycache__/
+tempCodeRunnerFile.py
+portfolio.json
+prebuilt_agents.py

@@ -1,0 +1,9 @@
+langchain
+langchain-nvidia-ai-endpoints
+langchain-groq
+langchain-ollama
+langgraph
+langgraph-supervisor
+langchain-core
+yfinance
+python-dotenv

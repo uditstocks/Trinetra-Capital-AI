@@ -1,12 +1,9 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()
-
-
-
-import requests
 from langchain_nvidia import ChatNVIDIA
 from langchain.agents import create_agent
+from langgraph_supervisor import create_supervisor
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.messages import SystemMessage, AIMessage, ToolMessage, HumanMessage
@@ -17,10 +14,66 @@ from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langgraph.types import Command
 import json
 from datetime import datetime
+from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
 
-# DEFINING TOOLS
+# ___LLM___
+Nllm = ChatNVIDIA(
+    model="nvidia/nemotron-3-super-120b-a12b",
+    api_key=os.getenv("NVIDIA_API_KEY"),
+    temperature=1,
+)
 
+llm = ChatOllama(model = "llama3.1:8b")
+
+# deterministic routing
+supervisor_llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0,
+)
+
+
+# ___TOOLS___
+
+# UPDATED LOOKUP_STOCKS_TOOL
 @tool("lookup_stocks")
+def lookup_stocks_symbol(comany_name: str) -> str:
+    """
+    Converts a company name to its stock symbol using Yahoo Finance.
+    Supports both Indian (NSE/BSE) and US stocks.
+    """
+
+    try:
+        results = yf.Search(comany_name, max_results = 10).quotes
+        if not results:
+            return f"Symbol not found {comany_name}."
+        
+        # if user mentions NSE specifically → prefer .NS
+        if "nse" in comany_name.lower():
+            for r in results:
+                if r.get("symbol", "").endswith(".NS"):
+                    return r["symbol"]
+           
+        # if user mentions BSE specifically → prefer .BO
+        if "bse" in comany_name.lower():
+            for r in results:
+                if r.get("symbol", "").endswith(".BO"):
+                    return r["symbol"]
+        # default → prefer NSE over BSE over US
+        for suffix in [".NS", ".BO"]:
+            for r in results:
+                if r.get("symbol", "").endswith(suffix):
+                    return r["symbol"]
+
+
+         # fallback to first result
+        return results[0]["symbol"]
+    
+    except Exception as e:
+        return f"Error searching for {comany_name}: {str(e)}"
+
+'''@tool("lookup_stocks")
 def lookup_stock_symbol(company_name: str) -> str:
     """
     converts a company name to its stock symbol using a financial API.
@@ -37,16 +90,17 @@ def lookup_stock_symbol(company_name: str) -> str:
     data = response.json()
 
     # learning 
-    '''When you pass params=parameters, the library takes your dictionary and automatically appends it to the URL as a query string, like:
-    https://www.alphavantage.co/query?
-    function=SYMBOL_SEARCH&key_word=Apple&apikey=FWPXO31AYP17JABO'''
+    # When you pass params=parameters, the library takes your dictionary and automatically appends it to the URL as a query string, like:
+    # https://www.alphavantage.co/query?
+    # function=SYMBOL_SEARCH&key_word=Apple&apikey=FWPXO31AYP17JABO
 
     if "bestMatches" in data and data["bestMatches"]:  # the bestMatch checks Does the key "bestMatches" even exist in the response which is provided in JSON formate 
         return data["bestMatches"][0]["1. symbol"]  
     else:
-        return f"symbol not found for {company_name}."
-    
-    
+        return f"symbol not found for {company_name}."'''
+
+
+
 @tool("fetch_stock_data")
 def fetch_stock_data_raw(stock_symbol: str) -> dict:
     """
@@ -65,6 +119,7 @@ def fetch_stock_data_raw(stock_symbol: str) -> dict:
         combined_data = {
             "stock_symbol": stock_symbol,
             "company_name": info.get("longName"),
+            "currency": "INR" if stock_symbol.endswith((".NS", ".BO")) else "USD",
             "sector": info.get("sector"),
             "market_cap": info.get("marketCap"),
             "pe_ratio": info.get("trailingPE"),
@@ -95,14 +150,6 @@ def save_portfolio(portfolio):
     with open(PORTFOLIO_FILE, "w") as f:
         json.dump(portfolio, f, indent=2)
 
-@tool("view_portfolio")
-def view_portfolio() -> str:
-    """View all current holdings and trade history."""
-    portfolio = load_portfolio()
-    if not portfolio:
-        return "Portfolio is empty."
-    return pformat(portfolio)
-
 
 @tool("place_order")
 def place_order(
@@ -126,6 +173,7 @@ order_type: str = "limit"
     Returns:
     - status: Execution result (simulated)
     - symbol
+    - currency
     - shares
     - limit_price
     - total_spent
@@ -134,13 +182,15 @@ order_type: str = "limit"
 
     """
     total_spent = round(int(shares) * limit_price, 2)
-    
+    currency = "INR" if symbol.endswith((".NS", ".BO")) else "USD"
+
     # log the trade
     portfolio = load_portfolio()
     portfolio.append({
         "timestamp": datetime.now().isoformat(),
         "symbol": symbol,
         "action": action,
+        "currency": currency,
         "shares": int(shares),
         "price": limit_price,
         "total": total_spent
@@ -151,85 +201,78 @@ order_type: str = "limit"
         "status": "filled",
         "symbol": symbol,
         "shares": int(shares),
+        "currency": currency,
         "limit_price": limit_price,
         "total_spent": total_spent,
         "type": order_type,
         "action": action
     }
 
-
-# SYSTEM PROMPT
-
-system_message = """
-You are an expert stock trading assistant with access to live market tools.
-
-You can: lookup stock symbols, fetch real-time price data, and execute buy/sell orders.
-
-Behavior:
-- Always ground decisions in real tool data — never hallucinate prices or symbols.
-- Be decisive: if you have enough data, act immediately with tool calls.
-- If critical info is missing, ask exactly ONE clarifying question.
-- Always assess risk before placing any order.
-- Think step-by-step: lookup → analyze → execute.
-- For budget-based orders, always round DOWN to nearest whole share and proceed immediately.
-"""
-
-
-# LLM
-llm = ChatNVIDIA(
-  model="nvidia/nemotron-3-super-120b-a12b",
-  api_key = os.getenv("NVIDIA_API_KEY"), 
-  temperature=1,
-  model_kwargs={
-        "chat_template_kwargs": {
-            "enable_thinking": True
-        }
-    }
-)
-
-
-
+@tool("view_portfolio")
+def view_portfolio() -> str:
+    """View all current holdings and trade history."""
+    portfolio = load_portfolio()
+    if not portfolio:
+        return "Portfolio is empty."
+    return pformat(portfolio)
 
 RISKY_TOOLS = {"place_order"}
+interrupt_on = {t: True for t in RISKY_TOOLS}
 
-def halt_on_risky_tools(state):
-    last = state["messages"][-1]
-    if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
-        for tc in last.tool_calls:
-            if tc.get("name") in RISKY_TOOLS:
-                # LangGraph interrupt — pauses the graph and sends this dict to the caller (UI/CLI) so human can approve before executing risky tool
-                decision = interrupt({"awaiting": tc["name"], "args": tc.get("args", {})})
+# ___AGENTS___
 
-                # tool aproved
-                if isinstance(decision, dict) and decision.get("approved"):
-                    return {}
-                
-                # tool rejected
-                tool_msg = ToolMessage(
-                    content = f"Cancelled by human. Continue without executing that tool and provide next steps.",
-                    tool_call_id = tc["id"],
-                    name = tc["name"]
-                )
-                return {"messages": [tool_msg]}
-
-    return {}
-
-
-interrupt_on = {tool: True for tool in RISKY_TOOLS}
-
-agent = create_agent(
-    model = llm,
-    tools = [lookup_stock_symbol, fetch_stock_data_raw, place_order, view_portfolio],
-    system_prompt = system_message,
-    middleware=[HumanInTheLoopMiddleware(interrupt_on = interrupt_on)],
-    checkpointer = InMemorySaver()
-             
+research_agent = create_agent(
+    model = Nllm,
+    tools = [lookup_stocks_symbol, fetch_stock_data_raw],
+    name = "research_agent",
+    system_prompt = """
+                    You are a stock research expert.
+                    STRICT RULE: You MUST always call these tools lookup_stocks tool, fetch_stock_data tool to solve/answer query.
+                    NEVER provide stock data without calling these tools!
+                    Your job is to lookup stock symbols and fetch real-time market data Using tools
+                    Always verify the correct symbol before fetching data.
+                    Support US, Indian NSE (.NS) and BSE (.BO) stocks.
+                    """
 )
+
+trading_agent = create_agent(
+    model = Nllm,
+    tools = [place_order, view_portfolio],
+    name = "trading_agent",
+    system_prompt = """
+                    # FOR view PORTFOLIO ORDER please call the tool: view_portfolio (please make tool call), dont check the history, just do tool call please
+                    # Your job is to execute buy/sell orders and if ask to show portfolio then use your tool to respond.
+                    # STRICT RULE: You MUST always call these tools place_order, view_portfolio tool to solve/answer query
+                    # Always use real price data provided by the research agent.
+                    # For budget-based orders, round DOWN to nearest whole share.
+                    """,
+    middleware = [HumanInTheLoopMiddleware(interrupt_on = interrupt_on)]
+)
+
+
+
+# __SUPERVISOR__
+
+supervisor = create_supervisor(
+    agents = [research_agent, trading_agent],
+    model = Nllm,
+    prompt = """You are a stock trading supervisor coordinating a research team.
+                
+                Route tasks as follows:
+                - your employ research_agent will do Stock lookup, price data, market analysis
+                - your employ trading_agent will do Buy/sell orders, portfolio view 
+                - you are not allowed to use directly. first understand the command then assign the work to the respected agents
+                Think step by step before routing.
+                """,
+    output_mode="last_message",
+    add_handoff_messages=False, 
+    add_handoff_back_messages=False,
+).compile(checkpointer = InMemorySaver())
+
 
 def print_tool_approval(interrupts):
     for intr in interrupts:
         print("--- Approval needed ---")
-        # ✅ Correct fix — only change "arguments" → "args"
         action_requests = intr.value.get("action_requests", [])
         for action in action_requests:
             print(f"Tool: {action['name']}")
@@ -241,17 +284,20 @@ def print_tool_approval(interrupts):
                     print(f"  - {k}: {v}")
 
 
+
 config = {"configurable": {"thread_id": "1"}}
+print("\n🤖 Stock Trading Agent ready! Type 'exit' to quit.\n")
 
 while True:
 
-    command = input("Command sir! what do you want me to do: ")
+    command = input("yes sir! what's on your mind: ")
 
     if command.lower() in ("exit", "quit"):
+        print("Jai Mahakal! 🔱")
         break
 
     # ── Step 1: Run until interrupt ──
-    result = agent.invoke(
+    result = supervisor.invoke(
         {"messages": [HumanMessage(content = command )]},
         config=config,
     )
@@ -259,12 +305,9 @@ while True:
     interrupts = result.get("__interrupt__", [])
 
     # ── Step 2: Show interrupt details ──
-
-
     print_tool_approval(interrupts)
 
     # ── Step 3: Approve or Reject ──
-
     if interrupts:
         user_input = input("\n⚠️ Approve this action? (yes/no): ").strip().lower()
 
@@ -276,7 +319,7 @@ while True:
             decision = {"type": "reject"}
             print("❌ Order rejected.")
 
-        response = agent.invoke(Command(resume = {"decisions": [decision]}), config = config)
+        response = supervisor.invoke(Command(resume = {"decisions": [decision]}), config = config)
 
         for message in response["messages"]:
             message.pretty_print()
@@ -285,4 +328,7 @@ while True:
         # No interrupt happened (no risky tool was called)
         for message in result["messages"]:
             message.pretty_print()
+
+
+
 
