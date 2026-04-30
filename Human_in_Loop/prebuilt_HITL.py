@@ -27,20 +27,20 @@ from textblob import TextBlob
 
 # ___LLM___
 
-llm = ChatNVIDIA(
-    model="nvidia/nemotron-3-super-120b-a12b",
-    api_key=os.getenv("NVIDIA_API_KEY"),
-    temperature=0,
-)
+# llm = ChatNVIDIA(
+#     model="nvidia/nemotron-3-super-120b-a12b",
+#     api_key=os.getenv("NVIDIA_API_KEY"),
+#     temperature=0,
+# )
 
 # Local Model Setup For Ollama
 # llm = ChatOllama(model = "llama3.1:8b")
 
-# llm = ChatGroq(
-#     model="llama-3.3-70b-versatile",
-#     api_key=os.getenv("GROQ_API_KEY"),
-#     temperature=0,
-# )
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0,
+)
 
 
 # ___TOOLS___
@@ -57,7 +57,7 @@ def analyze_stock_sentiment(ticker: str) -> str:
     ticker = ticker.upper().strip()
     try:
         tk = yf.Ticker(ticker)
-        hist = tk.history(period="0d", interval="1d")
+        hist = tk.history(period="90d", interval="1d")
     except Exception as e:
         return f"Error fetching data for {ticker}: {e}"
 
