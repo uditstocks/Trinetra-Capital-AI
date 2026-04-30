@@ -24,7 +24,8 @@ import requests
 from bs4 import BeautifulSoup
 from textblob import TextBlob
 
-'''------------------------------------------------------------------------------------------------------------'''
+
+# ___LLM___
 
 llm = ChatNVIDIA(
     model="nvidia/nemotron-3-super-120b-a12b",
@@ -32,16 +33,15 @@ llm = ChatNVIDIA(
     temperature=0,
 )
 
+# Local Model Setup For Ollama
 # llm = ChatOllama(model = "llama3.1:8b")
 
-# # deterministic routing
 # llm = ChatGroq(
 #     model="llama-3.3-70b-versatile",
 #     api_key=os.getenv("GROQ_API_KEY"),
 #     temperature=0,
 # )
 
-'''------------------------------------------------------------------------------------------------------------'''
 
 # ___TOOLS___
 
@@ -57,7 +57,7 @@ def analyze_stock_sentiment(ticker: str) -> str:
     ticker = ticker.upper().strip()
     try:
         tk = yf.Ticker(ticker)
-        hist = tk.history(period="30d", interval="1d")
+        hist = tk.history(period="0d", interval="1d")
     except Exception as e:
         return f"Error fetching data for {ticker}: {e}"
 
@@ -180,39 +180,6 @@ def lookup_stocks_symbol(comany_name: str) -> str:
         return f"Error searching for {comany_name}: {str(e)}"
 
 
-# OLD lookup stock Tool
-'''
-Advantage: Official and very stable for US/Global markets.
-Drawback: Needs an API key and often misses Indian exchange suffixes (NSE/BSE).'''
-
-'''@tool("C")
-def lookup_stock_symbol(company_name: str) -> str:
-    """
-    converts a company name to its stock symbol using a financial API.
-    """
-
-    api_url = "https://www.alphavantage.co/query"
-    params = {
-        "function": "SYMBOL_SEARCH",
-        "keywords": company_name,
-        "apikey": os.getenv("ALPHA_VANTAGE_KEY")
-    }
-
-    response = requests.get(api_url, params = params)
-    data = response.json()
-
-    # learning 
-    # When you pass params=parameters, the library takes your dictionary and automatically appends it to the URL as a query string, like:
-    # https://www.alphavantage.co/query?
-    # function=SYMBOL_SEARCH&key_word=Apple&apikey=FWPXO31AYP17JABO
-
-    if "bestMatches" in data and data["bestMatches"]:  # the bestMatch checks Does the key "bestMatches" even exist in the response which is provided in JSON formate 
-        return data["bestMatches"][0]["1. symbol"]  
-    else:
-        return f"symbol not found for {company_name}."'''
-
-
-
 @tool("fetch_stock_data")
 def fetch_stock_data_raw(stock_symbol: str) -> dict:
     """
@@ -331,6 +298,9 @@ def view_portfolio() -> str:
 RISKY_TOOLS = {"place_order"}
 interrupt_on = {t: True for t in RISKY_TOOLS}
 
+
+
+
 # ___AGENTS___
 
 research_agent = create_agent(
@@ -368,7 +338,7 @@ sentiment_agent = create_agent(
     system_prompt="""
     You are a market sentiment and technical analysis expert.
     STRICT RULE: ALWAYS call the analyze_stock_sentiment tool first — never guess.
-    When user asks 'should I buy X?', 'what's the outlook for X?', or 'is X a good buy?':
+    When user asks query's like or similar: should i buy this stock, what's your analysis on this stock.
       1. Call analyze_stock_sentiment with the ticker symbol.
       2. Format the result as:
          📊 TICKER — SIGNAL (confidence)
@@ -377,7 +347,6 @@ sentiment_agent = create_agent(
          Composite Score: X/100
          Stop-loss: X | Target 1: X | Target 2: X
          Summary: 2-sentence synthesis.
-         ⚠️ Not financial advice.
     """,
 )
 
@@ -391,11 +360,11 @@ supervisor = create_supervisor(
     prompt = """You are a stock trading supervisor coordinating a research team.
                 
                 Route tasks as follows:
-                - use sentiment_agent for question like should i buy a stock 
+                - your employ sentiment_agent will answer similar user query like: should i buy this stock, whats your stand/advice on this stock
                 - your employ research_agent will do Stock lookup, price data, market analysis
                 - your employ trading_agent will do Buy/sell orders, portfolio view 
                 - you are not allowed to use directly. first understand the command then assign the work to the respected agents
-                Think step by step before routing.
+                Think step by step before routing to any agent/employ.
                 """,
     output_mode="last_message",
     add_handoff_messages=False, 
