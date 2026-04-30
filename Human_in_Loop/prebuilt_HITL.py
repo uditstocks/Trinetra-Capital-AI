@@ -2,9 +2,11 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_nvidia import ChatNVIDIA
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain.agents import create_agent
 from langgraph_supervisor import create_supervisor
 from langchain_core.tools import tool
+import uuid
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.messages import SystemMessage, AIMessage, ToolMessage, HumanMessage
 from langgraph.types import interrupt
@@ -16,25 +18,129 @@ import json
 from datetime import datetime
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
+import numpy as np
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from textblob import TextBlob
 
-# ___LLM___
-Nllm = ChatNVIDIA(
+'''------------------------------------------------------------------------------------------------------------'''
+
+llm = ChatNVIDIA(
     model="nvidia/nemotron-3-super-120b-a12b",
     api_key=os.getenv("NVIDIA_API_KEY"),
-    temperature=1,
-)
-
-llm = ChatOllama(model = "llama3.1:8b")
-
-# deterministic routing
-supervisor_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    api_key=os.getenv("GROQ_API_KEY"),
     temperature=0,
 )
 
+# llm = ChatOllama(model = "llama3.1:8b")
+
+# # deterministic routing
+# llm = ChatGroq(
+#     model="llama-3.3-70b-versatile",
+#     api_key=os.getenv("GROQ_API_KEY"),
+#     temperature=0,
+# )
+
+'''------------------------------------------------------------------------------------------------------------'''
 
 # ___TOOLS___
+
+@tool("analyze_stock_sentiment")
+def analyze_stock_sentiment(ticker: str) -> str:
+    """
+    Analyzes a stock's technical indicators and news sentiment.
+    Computes RSI-14, MACD, Bollinger Bands from price history.
+    Scrapes Yahoo Finance headlines and scores them with TextBlob.
+    Returns a BUY / SELL / HOLD signal with composite score and ATR-based risk levels.
+    Use this when the user asks 'should I buy X?', 'what's the outlook for X?', etc.
+    """
+    ticker = ticker.upper().strip()
+    try:
+        tk = yf.Ticker(ticker)
+        hist = tk.history(period="30d", interval="1d")
+    except Exception as e:
+        return f"Error fetching data for {ticker}: {e}"
+
+    if hist.empty or len(hist) < 30:
+        return f"Not enough price history for {ticker}."
+
+    close = hist["Close"]
+    high  = hist["High"]
+    low   = hist["Low"]
+    # RSI-14
+    delta = close.diff()
+    gain  = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
+    loss  = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
+    rsi_series = 100 - (100 / (1 + gain / loss.replace(0, float("nan"))))
+    rsi = round(float(rsi_series.iloc[-1]), 2)
+
+    # MACD
+    ema12      = close.ewm(span=12, adjust=False).mean()
+    ema26      = close.ewm(span=26, adjust=False).mean()
+    macd_line  = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    histogram  = round(float((macd_line - signal_line).iloc[-1]), 4)
+    macd_cross = "bullish" if histogram > 0 else "bearish"
+
+    # Bollinger Bands %B
+    sma20  = close.rolling(20).mean()
+    std20  = close.rolling(20).std()
+    pct_b  = round(float(((close - (sma20 - 2*std20)) / (4*std20 + 1e-9)).iloc[-1]), 3)
+
+    # ATR-14
+    tr  = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
+    atr = round(float(tr.ewm(com=13, min_periods=14).mean().iloc[-1]), 4)
+
+    price = round(float(close.iloc[-1]), 2)
+
+    # News sentiment via BeautifulSoup + TextBlob
+    headlines = []
+    try:
+        url  = f"https://finance.yahoo.com/quote/{ticker}/news/"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup.find_all("h3")[:10]:
+            text = tag.get_text(strip=True)
+            if len(text) > 20:
+                headlines.append(text)
+    except Exception:
+        pass  # silently skip if scraping fails
+
+    sentiment_scores = [TextBlob(h).sentiment.polarity for h in headlines] if headlines else [0.0]
+    avg_sentiment    = round(float(np.mean(sentiment_scores)), 3)
+    sentiment_label  = "bullish" if avg_sentiment > 0.15 else "bearish" if avg_sentiment < -0.15 else "neutral"
+
+    # Composite signal score (0–100, baseline 50)
+    score = 50
+    score += 20 if rsi < 30 else 10 if rsi < 40 else -20 if rsi > 70 else -10 if rsi > 60 else 0
+    score += 15 if histogram > 0 else -15
+    score += 10 if pct_b < 0.2 else -10 if pct_b > 0.8 else 0
+    score += round(avg_sentiment * 15)
+    score  = max(0, min(100, score))
+
+    action     = "BUY" if score >= 65 else "SELL" if score <= 35 else "HOLD"
+    confidence = "high" if score >= 80 or score <= 20 else "moderate"
+
+    result = {
+        "ticker":          ticker,
+        "price":           price,
+        "rsi":             rsi,
+        "rsi_signal":      "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral",
+        "macd_crossover":  macd_cross,
+        "macd_histogram":  histogram,
+        "bollinger_pct_b": pct_b,
+        "atr":             atr,
+        "sentiment_score": avg_sentiment,
+        "sentiment_label": sentiment_label,
+        "headlines_used":  len(headlines),
+        "composite_score": score,
+        "signal":          action,
+        "confidence":      confidence,
+        "stop_loss":       round(price - 1.5 * atr, 2),
+        "target_1":        round(price + 2.0 * atr, 2),
+        "target_2":        round(price + 3.5 * atr, 2),
+    }
+    return pformat(result)
 
 # UPDATED LOOKUP_STOCKS_TOOL
 @tool("lookup_stocks")
@@ -73,7 +179,13 @@ def lookup_stocks_symbol(comany_name: str) -> str:
     except Exception as e:
         return f"Error searching for {comany_name}: {str(e)}"
 
-'''@tool("lookup_stocks")
+
+# OLD lookup stock Tool
+'''
+Advantage: Official and very stable for US/Global markets.
+Drawback: Needs an API key and often misses Indian exchange suffixes (NSE/BSE).'''
+
+'''@tool("C")
 def lookup_stock_symbol(company_name: str) -> str:
     """
     converts a company name to its stock symbol using a financial API.
@@ -222,7 +334,7 @@ interrupt_on = {t: True for t in RISKY_TOOLS}
 # ___AGENTS___
 
 research_agent = create_agent(
-    model = Nllm,
+    model = llm,
     tools = [lookup_stocks_symbol, fetch_stock_data_raw],
     name = "research_agent",
     system_prompt = """
@@ -236,7 +348,7 @@ research_agent = create_agent(
 )
 
 trading_agent = create_agent(
-    model = Nllm,
+    model = llm,
     tools = [place_order, view_portfolio],
     name = "trading_agent",
     system_prompt = """
@@ -249,16 +361,37 @@ trading_agent = create_agent(
     middleware = [HumanInTheLoopMiddleware(interrupt_on = interrupt_on)]
 )
 
+sentiment_agent = create_agent(
+    model=llm,
+    tools=[analyze_stock_sentiment],
+    name="sentiment_agent",
+    system_prompt="""
+    You are a market sentiment and technical analysis expert.
+    STRICT RULE: ALWAYS call the analyze_stock_sentiment tool first — never guess.
+    When user asks 'should I buy X?', 'what's the outlook for X?', or 'is X a good buy?':
+      1. Call analyze_stock_sentiment with the ticker symbol.
+      2. Format the result as:
+         📊 TICKER — SIGNAL (confidence)
+         Price: X | RSI: X (signal) | MACD: crossover
+         Sentiment: label (score, N headlines)
+         Composite Score: X/100
+         Stop-loss: X | Target 1: X | Target 2: X
+         Summary: 2-sentence synthesis.
+         ⚠️ Not financial advice.
+    """,
+)
+
 
 
 # __SUPERVISOR__
 
 supervisor = create_supervisor(
-    agents = [research_agent, trading_agent],
-    model = Nllm,
+    agents = [research_agent, trading_agent,sentiment_agent],
+    model = llm,
     prompt = """You are a stock trading supervisor coordinating a research team.
                 
                 Route tasks as follows:
+                - use sentiment_agent for question like should i buy a stock 
                 - your employ research_agent will do Stock lookup, price data, market analysis
                 - your employ trading_agent will do Buy/sell orders, portfolio view 
                 - you are not allowed to use directly. first understand the command then assign the work to the respected agents
@@ -285,7 +418,7 @@ def print_tool_approval(interrupts):
 
 
 
-config = {"configurable": {"thread_id": "1"}}
+
 print("\n🤖 Stock Trading Agent ready! Type 'exit' to quit.\n")
 
 while True:
@@ -295,6 +428,8 @@ while True:
     if command.lower() in ("exit", "quit"):
         print("Jai Mahakal! 🔱")
         break
+
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     # ── Step 1: Run until interrupt ──
     result = supervisor.invoke(
@@ -321,8 +456,7 @@ while True:
 
         response = supervisor.invoke(Command(resume = {"decisions": [decision]}), config = config)
 
-        for message in response["messages"]:
-            message.pretty_print()
+        response["messages"][-1].pretty_print()
 
     else:
         # No interrupt happened (no risky tool was called)
