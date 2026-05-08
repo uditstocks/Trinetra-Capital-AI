@@ -21,35 +21,35 @@ Built for both **Indian markets (NSE/BSE)** and **US markets (NASDAQ/NYSE)**, wi
 ╚══════════════════════════════════╦═══════════════════════════════════╝
                                    ║
                                    ▼
-╔══════════════════════════════════════════════════════════════════════╗
-║               SUPERVISOR AGENT — Groq LLaMA 3.3-70B                 ║
-║                                                                      ║
-║   • Interprets user intent        • Routes to correct agent          ║
-║   • Coordinates multi-agent flow  • Synthesizes final response       ║
-║   • Maintains conversation state  • LangGraph checkpointing          ║
-╚═════════════════╦════════════════════════════╦════════════════════════╝
-                  ║                            ║
-          transfer_to_research         transfer_to_trading
-                  ║                            ║
-                  ▼                            ▼
-╔═════════════════════════╗      ╔══════════════════════════════════════╗
-║     RESEARCH AGENT      ║      ║          TRADING AGENT              ║
-║     NVIDIA NIM          ║      ║          NVIDIA NIM                 ║
-║  nemotron-3-super-120b  ║      ║       nemotron-3-super-120b         ║
-║                         ║      ║                                      ║
-║  Tools:                 ║      ║  Tools:                             ║
-║  ├─ lookup_stocks       ║      ║  ├─ place_order ──→ [HITL GATE]    ║
-║  │   ├─ NSE (.NS)       ║      ║  └─ view_portfolio                  ║
-║  │   ├─ BSE (.BO)       ║      ║                                      ║
-║  │   └─ US (NASDAQ)     ║      ║  Auto-detects:                      ║
-║  └─ fetch_stock_data    ║      ║  ├─ Currency (INR / USD)            ║
-║      ├─ Live price      ║      ║  └─ Exchange type                   ║
+╔════════════════════════════════════════════════════════════════════════════════════════════╗
+║                          SUPERVISOR AGENT — Groq LLaMA 3.3-70B                             ║
+║                                                                                            ║
+║                 • Interprets user intent        • Routes to correct agent                  ║
+║                 • Coordinates multi-agent flow  • Synthesizes final response               ║
+║                 • Maintains conversation state  • LangGraph checkpointing                  ║
+╚════════════╦═════════════════════════════════════╦═════════════════════════════════╦═══════╝
+             ║                                     ║                                 ║
+    transfer_to_research                  transfer_to_trading               transfer_to_sentiment
+             ║                                     ║                                 ║
+             ▼                                     ▼                                 ▼
+╔═════════════════════════╗      ╔══════════════════════════════════════╗   ╔══════════════════════════════╗
+║     RESEARCH AGENT      ║      ║            TRADING AGENT             ║   ║       SENTIMENT AGENT        ║
+║       NVIDIA NIM        ║      ║             NVIDIA NIM               ║   ║          NVIDIA NIM          ║
+║  nemotron-3-super-120b  ║      ║         nemotron-3-super-120b        ║   ║     nemotron-3-super-120b    ║
+║                         ║      ║                                      ║   ║                              ║
+║  Tools:                 ║      ║  Tools:                              ║   ║  Tools:                      ║
+║  ├─ lookup_stocks       ║      ║  ├─ place_order ──→ [HITL GATE]      ║   ║  └─ analyze_stock_sentiment  ║
+║  │   ├─ NSE (.NS)       ║      ║  └─ view_portfolio                   ║   ║                              ║
+║  │   ├─ BSE (.BO)       ║      ║                                      ║   ╚══════════════════════════════╝
+║  │   └─ US (NASDAQ)     ║      ║  Auto-detects:                       ║
+║  └─ fetch_stock_data    ║      ║  ├─ Currency (INR / USD)             ║
+║      ├─ Live price      ║      ║  └─ Exchange type                    ║
 ║      ├─ 52W High/Low    ║      ║                                      ║
 ║      ├─ P/E Ratio       ║      ╚══════════════╦═══════════════════════╝
 ║      ├─ Market Cap      ║                     ║
 ║      ├─ Sector          ║                     ▼
 ║      └─ 5D Range        ║      ╔══════════════════════════════════════╗
-╚═════════════════════════╝      ║       HUMAN APPROVAL GATE           ║
+╚═════════════════════════╝      ║       HUMAN APPROVAL GATE            ║
                                  ║   HumanInTheLoopMiddleware           ║
                                  ║                                      ║
                                  ║   Shows: Symbol | Shares | Price     ║
@@ -84,24 +84,25 @@ Built for both **Indian markets (NSE/BSE)** and **US markets (NASDAQ/NYSE)**, wi
 | Layer | Technology |
 |-------|-----------|
 | **Agent Framework** | LangGraph 1.0, LangChain 1.0 |
-| **Multi-Agent** | `langgraph-supervisor` — Hierarchical supervisor pattern |
-| **LLM (Agents)** | NVIDIA NIM — `nemotron-3-super-120b` |
-| **LLM (Supervisor)** | Groq — `llama-3.3-70b-versatile` |
-| **Market Data** | `yfinance` — Real-time NSE/BSE/US prices |
-| **HITL** | `HumanInTheLoopMiddleware` — Interrupt-based approval |
-| **Memory** | `InMemorySaver` — LangGraph checkpointing |
-| **Observability** | LangSmith — Full agent trace & token analytics |
+| **Multi-Agent** | `langgraph-supervisor` (Hierarchical supervisor pattern) |
+| **LLM (Agents)** | NVIDIA NIM  (`nemotron-3-super-120b`) |
+| **LLM (Supervisor)** | Groq  (`llama-3.3-70b-versatile`) |
+| **Market Data** | `yfinance` (Real-time NSE/BSE/US prices) |
+| **HITL** | `HumanInTheLoopMiddleware` (Interrupt-based approval) |
+| **Memory** | `InMemorySaver` (LangGraph checkpointing) |
+| **Observability** | LangSmith (Full agent trace & token analytics) |
 | **Containerization** | Docker + Docker Compose |
-| **Portfolio Storage** | JSON — Persistent trade logging |
+| **Portfolio Storage** | JSON (Persistent trade logging) |
 
 ---
 
 ## ✅ Current Features
 
 ### 🤖 Multi-Agent Architecture
-- **Supervisor Agent** — Routes tasks between specialized agents using Groq LLaMA 3.3
-- **Research Agent** — Handles all stock lookup and market data fetching
-- **Trading Agent** — Executes orders with built-in human approval gate
+- **Supervisor Agent** - Routes tasks between specialized agents using Groq LLaMA 3.3
+- **Research Agent** - Handles all stock lookup and market data fetching
+- **Trading Agent** - Executes orders with built-in human approval gate
+- **Sentiment Agent** - Analyzes market sentiment for stocks before decisions
 - Hierarchical coordination via `langgraph-supervisor` library
 
 ### 🛡️ Human-in-the-Loop (HITL)
@@ -115,6 +116,13 @@ Built for both **Indian markets (NSE/BSE)** and **US markets (NASDAQ/NYSE)**, wi
 - Supports **Indian stocks** (NSE `.NS` / BSE `.BO`) and **US stocks**
 - Auto-detects exchange from query ("TCS NSE", "Reliance BSE")
 - Fetches: latest price, 52W high/low, P/E ratio, market cap, sector, 5D range
+
+### 📰 Sentiment Analysis
+
+- Dedicated Sentiment Agent powered by analyze_stock_sentiment tool
+- Analyzes market sentiment for any stock on demand
+- Supervisor routes sentiment queries directly to Sentiment Agent
+- Helps make informed decisions before placing orders
 
 ### 💱 Currency Intelligence
 - Auto-detects currency from stock symbol
@@ -213,6 +221,12 @@ LANGCHAIN_PROJECT=trinetra-capital-ai
   → HITL Gate: "Approve buy 3 × AAPL @ $260.48? (yes/no)"
   → Order fills: Total $781.44 USD — logged to portfolio
 
+# ── Sentiment Analysis ─────────────────────────────────────
+> analyze sentiment for Infosys
+  → Supervisor routes to Sentiment Agent
+  → Calls analyze_stock_sentiment tool
+  → Returns sentiment score and market outlook for INFY
+
 # ── Exchange Specific ──────────────────────────────────────
 > buy 10 shares of TCS NSE
   → Research Agent forces .NS suffix lookup → TCS.NS
@@ -254,28 +268,28 @@ Advance_LangGraph/
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **PostgreSQL Persistent Memory** | Replace `InMemorySaver` with `PostgresSaver` — production-grade persistent memory that survives restarts | 🔄 Planned |
-| **RAG — Trade Intelligence** | FAISS + NVIDIA embeddings vector store — agent queries past trades, market notes, and historical decisions via semantic search | 🔄 Planned |
-| **News Sentiment Analysis** | Real-time news fetch before trade execution — NLP sentiment scoring, auto-warn on bearish signals | 🔄 Planned |
-| **Rich Terminal Dashboard** | `rich` library powered UI — live panels for agent reasoning, tool calls, portfolio summary, and approval prompts | 🔄 Planned |
-| **Async Execution** | Full `async/await` with `ainvoke` — non-blocking multi-agent execution for faster response times | 🔄 Planned |
-| **Portfolio P&L Engine** | Real-time profit/loss calculation — compares buy price vs current market price across all holdings | 🔄 Planned |
-| **Options Chain Analysis** | Fetch and analyze options data — PCR, OI buildup, IV crush detection for smarter trade decisions | 🔄 Planned |
-| **Real Broker API Integration** | Connect to **Zerodha Kite**, **Upstox**, or **Groww** APIs — execute real trades, fetch live orderbook, manage positions | 🔄 Planned |
-| **Cloud Deployment** | Deploy on AWS/GCP/Azure — always-on trading agent with webhook triggers, scheduled market scans | 🔄 Planned |
-| **Multi-Asset Support** | Extend beyond equities — Mutual Funds, ETFs, Crypto, Commodities under one unified agent system | 🔄 Planned |
+| **PostgreSQL Persistent Memory** | Replace `InMemorySaver` with `PostgresSaver` - production-grade persistent memory that survives restarts | 🔄 Planned |
+| **RAG — Trade Intelligence** | FAISS + NVIDIA embeddings vector store - agent queries past trades, market notes, and historical decisions via semantic search | 🔄 Planned |
+| **News Sentiment Analysis** | Real-time news fetch before trade execution - NLP sentiment scoring, auto-warn on bearish signals | ✅ Done |
+| **Rich Terminal Dashboard** | `rich` library powered UI - live panels for agent reasoning, tool calls, portfolio summary, and approval prompts | 🔄 Planned |
+| **Async Execution** | Full `async/await` with `ainvoke` - non-blocking multi-agent execution for faster response times | 🔄 Planned |
+| **Portfolio P&L Engine** | Real-time profit/loss calculation - compares buy price vs current market price across all holdings | 🔄 Planned |
+| **Options Chain Analysis** | Fetch and analyze options data - PCR, OI buildup, IV crush detection for smarter trade decisions | 🔄 Planned |
+| **Real Broker API Integration** | Connect to **Zerodha Kite**, **Upstox**, or **Groww** APIs - execute real trades, fetch live orderbook, manage positions | 🔄 Planned |
+| **Cloud Deployment** | Deploy on AWS/GCP/Azure - always-on trading agent with webhook triggers, scheduled market scans | 🔄 Planned |
+| **Multi-Asset Support** | Extend beyond equities - Mutual Funds, ETFs, Crypto, Commodities under one unified agent system | 🔄 Planned |
 
 ---
 
 ## 🧠 Key LangGraph Concepts Used
 
-- **StateGraph** — Graph-based agent execution flow
-- **Supervisor Pattern** — Central orchestrator with specialized worker agents
-- **HumanInTheLoop Interrupts** — Dynamic pause/resume via `interrupt()` function
-- **Checkpointing** — `InMemorySaver` for conversation state persistence
-- **Tool Calling** — Structured tool definitions with `@tool` decorator
-- **Handoff Tools** — Agent-to-agent communication via `transfer_to_*` tools
-- **Middleware** — `HumanInTheLoopMiddleware` for pre-execution approval gates
+- **StateGraph** - Graph-based agent execution flow
+- **Supervisor Pattern** - Central orchestrator with specialized worker agents
+- **HumanInTheLoop Interrupts** - Dynamic pause/resume via `interrupt()` function
+- **Checkpointing** - `InMemorySaver` for conversation state persistence
+- **Tool Calling** - Structured tool definitions with `@tool` decorator
+- **Handoff Tools** - Agent-to-agent communication via `transfer_to_*` tools
+- **Middleware** - `HumanInTheLoopMiddleware` for pre-execution approval gates
 
 ---
 
