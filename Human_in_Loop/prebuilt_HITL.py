@@ -26,22 +26,14 @@ from textblob import TextBlob
 
 
 # ___LLM___
-
-# llm = ChatNVIDIA(
-#     model="nvidia/nemotron-3-super-120b-a12b",
-#     api_key=os.getenv("NVIDIA_API_KEY"),
-#     temperature=0,
-# )
-
-# Local Model Setup For Ollama
-# llm = ChatOllama(model = "llama3.1:8b")
-
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    api_key=os.getenv("GROQ_API_KEY"),
+'''
+Please consider a LLM with have potential to handle multi agent's workflow
+'''
+llm = ChatNVIDIA(
+    model="nvidia/nemotron-3-super-120b-a12b",
+    api_key=os.getenv("NVIDIA_API_KEY"),
     temperature=0,
 )
-
 
 # ___TOOLS___
 
@@ -337,11 +329,11 @@ sentiment_agent = create_agent(
     name="sentiment_agent",
     system_prompt="""
     You are a market sentiment and technical analysis expert.
-    STRICT RULE: ALWAYS call the analyze_stock_sentiment tool first — never guess.
+    STRICT RULE: ALWAYS call the analyze_stock_sentiment tool
     When user asks query's like or similar: should i buy this stock, what's your analysis on this stock.
       1. Call analyze_stock_sentiment with the ticker symbol.
       2. Format the result as:
-         📊 TICKER — SIGNAL (confidence)
+         📊 TICKER - SIGNAL (confidence)
          Price: X | RSI: X (signal) | MACD: crossover
          Sentiment: label (score, N headlines)
          Composite Score: X/100
