@@ -136,25 +136,25 @@ def analyze_stock_sentiment(ticker: str) -> str:
 
 # UPDATED LOOKUP_STOCKS_TOOL
 @tool("lookup_stocks")
-def lookup_stocks_symbol(comany_name: str) -> str:
+def lookup_stocks_symbol(company_name: str) -> str:
     """
     Converts a company name to its stock symbol using Yahoo Finance.
     Supports both Indian (NSE/BSE) and US stocks.
     """
 
     try:
-        results = yf.Search(comany_name, max_results = 10).quotes
+        results = yf.Search(company_name, max_results = 10).quotes
         if not results:
-            return f"Symbol not found {comany_name}."
+            return f"Symbol not found {company_name}."
         
         # if user mentions NSE specifically → prefer .NS
-        if "nse" in comany_name.lower():
+        if "nse" in company_name.lower():
             for r in results:
                 if r.get("symbol", "").endswith(".NS"):
                     return r["symbol"]
            
         # if user mentions BSE specifically → prefer .BO
-        if "bse" in comany_name.lower():
+        if "bse" in company_name.lower():
             for r in results:
                 if r.get("symbol", "").endswith(".BO"):
                     return r["symbol"]
@@ -169,7 +169,7 @@ def lookup_stocks_symbol(comany_name: str) -> str:
         return results[0]["symbol"]
     
     except Exception as e:
-        return f"Error searching for {comany_name}: {str(e)}"
+        return f"Error searching for {company_name}: {str(e)}"
 
 
 @tool("fetch_stock_data")
