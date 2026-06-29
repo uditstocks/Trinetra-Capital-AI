@@ -1,80 +1,190 @@
 # 🔱 Trinetra Capital AI
 ### *Multi-Agents. One Market. Zero Missed Moves.*
 
-> An autonomous, multi-agent AI trading system built with LangGraph, LangChain, and NVIDIA NIM — designed for real-time stock research, intelligent order execution, and human-in-the-loop safety controls.
+> An autonomous, multi-agent AI trading system built with LangGraph, LangChain and NVIDIA NIM — now wired to the **Groww Trading API** for real order execution, live market data and portfolio management on NSE/BSE, with human-in-the-loop safety on every order.
 
 ---
 
 ## ⚡ What is Trinetra Capital AI?
 
-Trinetra Capital AI is a **production-grade agentic trading system** that orchestrates multiple specialized AI agents under a central supervisor. It fetches live market data, performs stock research, and executes buy/sell orders — all while keeping a human in control of every critical decision.
+Trinetra Capital AI orchestrates specialised AI agents under a central supervisor to research stocks, analyse sentiment, and **place real buy/sell orders through your Groww account**. It ships in **paper mode by default** so you can exercise the entire system safely, and flips to **live trading** with a single environment variable.
 
-Built for both **Indian markets (NSE/BSE)** and **US markets (NASDAQ/NYSE)**, with automatic currency detection and persistent portfolio tracking.
+- 📡 **Live market data** — real-time quotes, LTP and OHLC from Groww (yfinance fallback).
+- 💼 **Real portfolio** — holdings, positions, funds and live P&L from your Groww account.
+- 🛒 **Real order execution** — market & limit orders (CNC delivery / MIS intraday) on NSE/BSE.
+- 🛡️ **Human-in-the-loop** — every order/cancel pauses for explicit approval.
+- 🧯 **Safety rails** — paper-by-default, a hard per-order value cap, and a "LIVE" confirmation gate.
 
 ---
 
 ## 🏗️ System Architecture
 
 ```
-╔══════════════════════════════════════════════════════════════════════╗
-║                        USER INPUT (CLI)                              ║
-╚══════════════════════════════════╦═══════════════════════════════════╝
-                                   ║
-                                   ▼
-╔════════════════════════════════════════════════════════════════════════════════════════════╗
-║                          SUPERVISOR AGENT — Groq LLaMA 3.3-70B                             ║
-║                                                                                            ║
-║                 • Interprets user intent        • Routes to correct agent                  ║
-║                 • Coordinates multi-agent flow  • Synthesizes final response               ║
-║                 • Maintains conversation state  • LangGraph checkpointing                  ║
-╚════════════╦═════════════════════════════════════╦═════════════════════════════════╦═══════╝
-             ║                                     ║                                 ║
-    transfer_to_research                  transfer_to_trading               transfer_to_sentiment
-             ║                                     ║                                 ║
-             ▼                                     ▼                                 ▼
-╔═════════════════════════╗      ╔══════════════════════════════════════╗   ╔══════════════════════════════╗
-║     RESEARCH AGENT      ║      ║            TRADING AGENT             ║   ║       SENTIMENT AGENT        ║
-║       NVIDIA NIM        ║      ║             NVIDIA NIM               ║   ║          NVIDIA NIM          ║
-║  nemotron-3-super-120b  ║      ║         nemotron-3-super-120b        ║   ║     nemotron-3-super-120b    ║
-║                         ║      ║                                      ║   ║                              ║
-║  Tools:                 ║      ║  Tools:                              ║   ║  Tools:                      ║
-║  ├─ lookup_stocks       ║      ║  ├─ place_order ──→ [HITL GATE]      ║   ║  └─ analyze_stock_sentiment  ║
-║  │   ├─ NSE (.NS)       ║      ║  └─ view_portfolio                   ║   ║                              ║
-║  │   ├─ BSE (.BO)       ║      ║                                      ║   ╚══════════════════════════════╝
-║  │   └─ US (NASDAQ)     ║      ║  Auto-detects:                       ║
-║  └─ fetch_stock_data    ║      ║  ├─ Currency (INR / USD)             ║
-║      ├─ Live price      ║      ║  └─ Exchange type                    ║
-║      ├─ 52W High/Low    ║      ║                                      ║
-║      ├─ P/E Ratio       ║      ╚══════════════╦═══════════════════════╝
-║      ├─ Market Cap      ║                     ║
-║      ├─ Sector          ║                     ▼
-║      └─ 5D Range        ║      ╔══════════════════════════════════════╗
-╚═════════════════════════╝      ║       HUMAN APPROVAL GATE            ║
-                                 ║   HumanInTheLoopMiddleware           ║
-                                 ║                                      ║
-                                 ║   Shows: Symbol | Shares | Price     ║
-                                 ║   Action: [APPROVE] or [REJECT]      ║
-                                 ║   Powered by LangGraph interrupt()   ║
-                                 ╚══════════════╦═══════════════════════╝
-                                                ║
-                                                ▼
-                                 ╔══════════════════════════════════════╗
-                                 ║         portfolio.json               ║
-                                 ║      Persistent Trade Log            ║
-                                 ║                                      ║
-                                 ║  { symbol, action, shares,           ║
-                                 ║    price, total, currency,           ║
-                                 ║    timestamp }                       ║
-                                 ╚══════════════════════════════════════╝
-                                                ║
-                                                ▼
-                                 ╔══════════════════════════════════════╗
-                                 ║         LANGSMITH                    ║
-                                 ║      Full Observability Layer        ║
-                                 ║                                      ║
-                                 ║  • Agent traces    • Token usage     ║
-                                 ║  • Tool I/O        • Latency P50/P99 ║
-                                 ╚══════════════════════════════════════╝
+                         USER (CLI)  ──>  main.py
+                                │
+                                ▼
+              ┌─────────────────────────────────────────┐
+              │            SUPERVISOR AGENT              │
+              │   Routes by intent: execute / advise /   │
+              │   inform. Never calls tools itself.      │
+              └───────┬───────────────┬─────────────┬────┘
+                      │               │             │
+              research_agent   sentiment_agent   trading_agent
+                      │               │             │  (HITL gate)
+                      ▼               ▼             ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │                      TOOLS (trinetra/tools.py)                │
+   │  lookup_stocks · get_live_quote · fetch_stock_data            │
+   │  analyze_stock_sentiment                                       │
+   │  place_order* · cancel_order* · get_order_status              │
+   │  view_portfolio · get_funds          (* = human approval)     │
+   └───────────────┬───────────────────────────────┬──────────────┘
+                   ▼                                ▼
+         ┌───────────────────┐            ┌────────────────────────┐
+         │   MARKET DATA      │            │     BROKER LAYER        │
+         │ Groww live quote   │            │  get_broker() factory   │
+         │   ⟶ yfinance       │            │ ┌────────┐  ┌─────────┐ │
+         │ fundamentals (yf)  │            │ │ Paper  │  │  Groww  │ │
+         │ technical+sentiment│            │ │ broker │  │ broker  │ │
+         └─────────┬──────────┘            │ └────────┘  └────┬────┘ │
+                   │                       └──────────────────┼──────┘
+                   ▼                                          ▼
+            yfinance / Groww                    Groww Trading API (growwapi)
+                                                 auth + daily token cache
+                                                 (trinetra/broker/groww_client.py)
+```
+
+**Mode switch:** `GROWW_TRADING_MODE=paper` → `PaperBroker` (simulated fills + portfolio in `portfolio.json`). `=live` → `GrowwBroker` (real orders + your real Groww holdings). Orders **and** the portfolio you see follow the mode: demo mode shows the demo portfolio, live mode shows your real Groww account. **Market data (quotes/prices) is always real and live** from Groww (or yfinance fallback) in *both* modes — only orders and portfolio are simulated in demo. Switching is one line in `.env` + a restart.
+
+---
+
+## 🔌 Connect your Groww account (2 minutes)
+
+```bash
+pip install -r requirements.txt        # installs growwapi + pyotp + everything else
+cp .env.example .env                    # then add your keys (see below)
+python connect_groww.py                 # guided setup + read-only health check
+```
+
+`connect_groww.py` walks you through getting credentials, authenticates, caches a daily token, and prints your profile, funds and holdings to confirm the connection — **without placing any order**.
+
+### Getting Groww API credentials
+1. Open <https://groww.in/trade-api/docs> and log in.
+2. Go to **Groww Cloud / API Keys → Generate API Key**.
+3. Pick one flow and put the values in `.env`:
+
+   **A) TOTP flow (recommended — token auto-rotates daily):**
+   ```env
+   GROWW_API_KEY=your_totp_token
+   GROWW_TOTP_SECRET=your_totp_secret
+   ```
+   **B) Approval flow (API key + secret):**
+   ```env
+   GROWW_API_KEY=your_api_key
+   GROWW_API_SECRET=your_api_secret
+   ```
+
+> No Groww keys yet? The system still runs — research/sentiment use yfinance and orders are paper-traded. Connect Groww whenever you're ready.
+
+---
+
+## 🚀 Run it
+
+```bash
+python main.py            # interactive multi-agent CLI
+# (or, legacy path)  python Human_in_Loop/prebuilt_HITL.py
+```
+
+You'll see a banner showing the mode (PAPER/LIVE), Groww connection status and the per-order safety cap. In **LIVE** mode you must type `I UNDERSTAND` before the session starts.
+
+### Going live
+```env
+GROWW_TRADING_MODE=live          # default is 'paper'
+GROWW_MAX_ORDER_VALUE=100000     # hard rupee ceiling per order
+GROWW_DEFAULT_PRODUCT=CNC        # CNC = delivery, MIS = intraday
+```
+
+---
+
+## 🔑 Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `NVIDIA_API_KEY` | ✅ | LLM that powers the agents |
+| `GROWW_API_KEY` | for Groww | TOTP token or API key |
+| `GROWW_TOTP_SECRET` | flow A | TOTP secret (auto-generates daily token) |
+| `GROWW_API_SECRET` | flow B | API secret (approval flow) |
+| `GROWW_TRADING_MODE` | – | `paper` (default) or `live` |
+| `GROWW_MAX_ORDER_VALUE` | – | Per-order rupee cap (default 100000) |
+| `GROWW_DEFAULT_PRODUCT` | – | `CNC` (delivery) or `MIS` (intraday) |
+| `GROWW_DEFAULT_EXCHANGE` | – | `NSE` (default) or `BSE` |
+| `TRINETRA_PAPER_CASH` | – | Virtual cash for paper mode |
+| `GROQ_API_KEY` | – | Optional alternate LLM |
+
+See [.env.example](.env.example) for the full annotated list.
+
+---
+
+## 💬 Example Interactions
+
+```
+> what's the price of Reliance?
+  → research_agent → get_live_quote → ₹1,328.80 (+1.67%), prev close ₹1,307.00
+
+> should I buy Infosys?
+  → sentiment_agent → analyze_stock_sentiment → BUY (composite 72/100), SL/targets
+
+> buy 2 shares of Reliance at market
+  → trading_agent → place_order(RELIANCE, buy, 2, market)
+  → ⚠️ HITL gate: "Approve buy 2 × RELIANCE @ market? (yes/no)"
+  → Fills at ₹1,328.80 — logged (paper) or sent to Groww (live)
+
+> buy ₹10,000 worth of TCS
+  → trading_agent → get_live_quote → floor(10000/price) → place_order → HITL
+
+> show my portfolio
+  → trading_agent → view_portfolio → clean holdings table, live P&L, summary
+
+> show my orders today
+  → trading_agent → get_order_history → order book table
+
+> set a stop-loss sell on 5 TCS at trigger 3800   (LIVE only)
+  → trading_agent → place_order(order_type="sl_m", trigger_price=3800) → HITL
+
+> how much buying power do I have?
+  → trading_agent → get_funds → available cash / margin
+```
+
+> Routing runs on a fast Groq model (`meta/llama-3.3-70b-instruct`) while the
+> specialist agents use NVIDIA NIM — cutting a typical query from ~30s to well
+> under 10s. Portfolio/order tables are rendered deterministically in Python so
+> they're always clean and never hallucinated.
+
+---
+
+## 📁 Project Structure
+
+```
+Trinetra-Capital-AI/
+├── main.py                      # entrypoint  →  python main.py
+├── connect_groww.py             # guided Groww setup + health check
+├── trinetra/
+│   ├── config.py                # settings, paper/live mode, safety caps
+│   ├── logging_setup.py         # structured logging
+│   ├── symbols.py               # yfinance ⟷ Groww symbol normalisation
+│   ├── market_data.py           # Groww live data + yfinance fallback + TA/sentiment
+│   ├── tools.py                 # LangChain tools (the agents' only surface)
+│   ├── agents.py                # agents + supervisor (HITL on risky tools)
+│   ├── cli.py                   # interactive loop + approval gate
+│   └── broker/
+│       ├── base.py              # Broker interface + normalised data types
+│       ├── groww_client.py      # Groww auth + daily access-token cache
+│       ├── groww_broker.py      # live broker (real orders/portfolio/funds)
+│       └── paper_broker.py      # simulated broker (portfolio.json)
+├── Human_in_Loop/prebuilt_HITL.py   # legacy shim → launches the new CLI
+├── requirements.txt
+├── .env.example
+└── Dockerfile / docker-compose.yml
 ```
 
 ---
@@ -82,238 +192,48 @@ Built for both **Indian markets (NSE/BSE)** and **US markets (NASDAQ/NYSE)**, wi
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **Agent Framework** | LangGraph 1.0, LangChain 1.0 |
-| **Multi-Agent** | `langgraph-supervisor` (Hierarchical supervisor pattern) |
-| **LLM (Agents)** | NVIDIA NIM  (`nemotron-3-super-120b`) |
-| **LLM (Supervisor)** | Groq  (`llama-3.3-70b-versatile`) |
-| **Market Data** | `yfinance` (Real-time NSE/BSE/US prices) |
-| **HITL** | `HumanInTheLoopMiddleware` (Interrupt-based approval) |
-| **Memory** | `InMemorySaver` (LangGraph checkpointing) |
-| **Observability** | LangSmith (Full agent trace & token analytics) |
-| **Containerization** | Docker + Docker Compose |
-| **Portfolio Storage** | JSON (Persistent trade logging) |
+|---|---|
+| Agent framework | LangGraph, LangChain |
+| Multi-agent | `langgraph-supervisor` (hierarchical supervisor) |
+| LLM (agents) | NVIDIA NIM (`nemotron-3-super-120b`) |
+| LLM (supervisor) | Groq (`meta/llama-3.3-70b-instruct`) — fast routing |
+| **Broker** | **Groww Trading API (`growwapi`) + `pyotp`** |
+| Market data | Groww live (quote/LTP/OHLC) + `yfinance` fallback |
+| HITL | `HumanInTheLoopMiddleware` (interrupt-based approval) |
+| Memory | LangGraph checkpointing (`InMemorySaver`) |
+| Containerisation | Docker + Docker Compose |
 
 ---
 
-## ✅ Current Features
-
-### 🤖 Multi-Agent Architecture
-- **Supervisor Agent** - Routes tasks between specialized agents using Groq LLaMA 3.3
-- **Research Agent** - Handles all stock lookup and market data fetching
-- **Trading Agent** - Executes orders with built-in human approval gate
-- **Sentiment Agent** - Analyzes market sentiment for stocks before decisions
-- Hierarchical coordination via `langgraph-supervisor` library
-
-### 🛡️ Human-in-the-Loop (HITL)
-- Every `place_order` call is intercepted before execution
-- Full order details shown for review (symbol, shares, price, total)
-- Approve / Reject decision via CLI
-- Powered by LangChain's `HumanInTheLoopMiddleware`
-
-### 📊 Smart Stock Research
-- Yahoo Finance powered symbol lookup (no API key required)
-- Supports **Indian stocks** (NSE `.NS` / BSE `.BO`) and **US stocks**
-- Auto-detects exchange from query ("TCS NSE", "Reliance BSE")
-- Fetches: latest price, 52W high/low, P/E ratio, market cap, sector, 5D range
-
-### 📰 Sentiment Analysis
-
-- Dedicated Sentiment Agent powered by analyze_stock_sentiment tool
-- Analyzes market sentiment for any stock on demand
-- Supervisor routes sentiment queries directly to Sentiment Agent
-- Helps make informed decisions before placing orders
-
-### 💱 Currency Intelligence
-- Auto-detects currency from stock symbol
-- Indian stocks → `₹ INR`
-- US stocks → `$ USD`
-- No manual input required
-
-### 📁 Persistent Portfolio Tracker
-- Every filled order logged to `portfolio.json`
-- Persists across sessions and container restarts
-- Agent can query portfolio anytime via `view_portfolio` tool
-- Tracks: symbol, action, shares, price, total, currency, timestamp
-
-### 🔍 LangSmith Observability
-- Full execution trace for every agent run
-- Token usage analytics per tool call
-- Latency monitoring (P50/P99)
-- Debug individual tool inputs/outputs
-
-### 🐳 Docker Ready
-- Single command setup — no Python install needed
-- `docker-compose build && docker-compose run trading-agent`
-- Environment variables injected via `.env`
-- Portfolio data persisted via Docker volumes
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Docker & Docker Compose
-- API Keys (see `.env.example`)
-
-### Installation
+## 🐳 Docker
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/uditstocks/Advance_LangGraph.git
-cd Advance_LangGraph
-
-# 2. Setup environment variables
-cp .env.example .env
-# Edit .env with your API keys
-
-# 3. Build Docker image
 docker-compose build
-
-# 4. Run the agent
-docker-compose run trading-agent
+docker-compose run trading-agent      # runs python main.py
 ```
-
-### Without Docker
-
-```bash
-pip install -r requirements.txt
-python Human_in_Loop/prebuilt_HITL.py
-```
+`.env` is injected and `portfolio.json` is volume-mounted.
 
 ---
 
-## 🔑 Environment Variables
+## 🗺️ Roadmap
 
-Create a `.env` file in the root directory:
-
-```env
-# NVIDIA NIM API
-NVIDIA_API_KEY=your_nvidia_api_key
-
-# Groq API (Supervisor LLM)
-GROQ_API_KEY=your_groq_api_key
-
-# LangSmith Observability
-LANGCHAIN_API_KEY=your_langsmith_api_key
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=trinetra-capital-ai
-```
-
----
-
-## 💬 Example Interactions
-
-```
-# ── Indian Market ──────────────────────────────────────────
-> buy 5 shares of Reliance
-  → Supervisor routes to Research Agent
-  → Looks up RELIANCE.NS on Yahoo Finance
-  → Fetches live price ₹1,350.20, P/E 21.98, Market Cap ₹18.27T
-  → Routes to Trading Agent
-  → HITL Gate: "Approve buy 5 × RELIANCE.NS @ ₹1,350.20? (yes/no)"
-  → Order fills: Total ₹6,751.00 INR — logged to portfolio
-
-# ── US Market ──────────────────────────────────────────────
-> buy 3 shares of Apple with a budget of $1000
-  → Research Agent fetches AAPL: $260.48, P/E 33.01, 52W high $288.62
-  → Agent computes: floor(1000 / 260.48) = 3 shares
-  → HITL Gate: "Approve buy 3 × AAPL @ $260.48? (yes/no)"
-  → Order fills: Total $781.44 USD — logged to portfolio
-
-# ── Sentiment Analysis ─────────────────────────────────────
-> analyze sentiment for Infosys
-  → Supervisor routes to Sentiment Agent
-  → Calls analyze_stock_sentiment tool
-  → Returns sentiment score and market outlook for INFY
-
-# ── Exchange Specific ──────────────────────────────────────
-> buy 10 shares of TCS NSE
-  → Research Agent forces .NS suffix lookup → TCS.NS
-  → Fetches live NSE price, sector, market cap
-  → Routes to Trading Agent with verified data
-
-# ── Portfolio Query ────────────────────────────────────────
-> show my complete portfolio
-  → Trading Agent calls view_portfolio tool
-  → Reads portfolio.json → Returns full trade history
-  → Agent formats: Holdings table with INR/USD split
-
-# ── Multi-turn Memory ──────────────────────────────────────
-> what did I buy today?
-  → Supervisor recalls conversation context via checkpointing
-  → Returns today's trades from session memory
-```
-
----
-
-## 📁 Project Structure
-
-```
-Advance_LangGraph/
-├── Human_in_Loop/
-│   └── prebuilt_HITL.py      # Main agent system
-├── Dockerfile                 # Container definition
-├── docker-compose.yml         # Service orchestration
-├── requirements.txt           # Python dependencies
-├── .env.example               # Environment template
-├── .dockerignore              # Docker build exclusions
-├── .gitignore                 # Git exclusions
-└── portfolio.json             # Generated at runtime
-```
-
----
-
-## 🔭 Roadmap — Coming Soon
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **PostgreSQL Persistent Memory** | Replace `InMemorySaver` with `PostgresSaver` - production-grade persistent memory that survives restarts | 🔄 Planned |
-| **RAG — Trade Intelligence** | FAISS + NVIDIA embeddings vector store - agent queries past trades, market notes, and historical decisions via semantic search | 🔄 Planned |
-| **News Sentiment Analysis** | Real-time news fetch before trade execution - NLP sentiment scoring, auto-warn on bearish signals | ✅ Done |
-| **Rich Terminal Dashboard** | `rich` library powered UI - live panels for agent reasoning, tool calls, portfolio summary, and approval prompts | 🔄 Planned |
-| **Async Execution** | Full `async/await` with `ainvoke` - non-blocking multi-agent execution for faster response times | 🔄 Planned |
-| **Portfolio P&L Engine** | Real-time profit/loss calculation - compares buy price vs current market price across all holdings | 🔄 Planned |
-| **Options Chain Analysis** | Fetch and analyze options data - PCR, OI buildup, IV crush detection for smarter trade decisions | 🔄 Planned |
-| **Real Broker API Integration** | Connect to **Zerodha Kite**, **Upstox**, or **Groww** APIs - execute real trades, fetch live orderbook, manage positions | 🔄 Planned |
-| **Cloud Deployment** | Deploy on AWS/GCP/Azure - always-on trading agent with webhook triggers, scheduled market scans | 🔄 Planned |
-| **Multi-Asset Support** | Extend beyond equities - Mutual Funds, ETFs, Crypto, Commodities under one unified agent system | 🔄 Planned |
-
----
-
-## 🧠 Key LangGraph Concepts Used
-
-- **StateGraph** - Graph-based agent execution flow
-- **Supervisor Pattern** - Central orchestrator with specialized worker agents
-- **HumanInTheLoop Interrupts** - Dynamic pause/resume via `interrupt()` function
-- **Checkpointing** - `InMemorySaver` for conversation state persistence
-- **Tool Calling** - Structured tool definitions with `@tool` decorator
-- **Handoff Tools** - Agent-to-agent communication via `transfer_to_*` tools
-- **Middleware** - `HumanInTheLoopMiddleware` for pre-execution approval gates
-
----
-
-## 📊 Performance (LangSmith Metrics)
-
-| Metric | Value |
-|--------|-------|
-| Token usage (optimized) | ~2K–6K per run |
-| Token usage (before optimization) | ~16K–60K per run |
-| Token reduction | **~10x** |
-| Avg latency | ~30–45s (multi-agent) |
-
----
-
-## 🔱 About
-
-Built with 🔱 by **Udit** — AI Engineering Student, India
-
-Passionate about the full Agentic AI stack — **LangChain**, **LangGraph**, **CrewAI**, **RAG Pipelines**, **Vector Databases (FAISS, pgvector, Chroma)**, **Multi-Agent Orchestration**, **NVIDIA NIM**, **Groq**, **MCP (Model Context Protocol)**, **Tool Calling**, **Prompt Engineering**, **Human-in-the-Loop Systems**, **Embedding Models**, **Semantic Search**, and building production-grade Generative AI systems that solve real-world financial problems at scale.
-
-> *"Har decision mein teen nazar — research ki, trading ki, aur insaan ki."*
+| Feature | Status |
+|---|---|
+| **Real Broker API (Groww)** — live orders, portfolio, funds, market data | ✅ **Done** |
+| News Sentiment Analysis | ✅ Done |
+| Paper / Live safety modes + per-order cap | ✅ Done |
+| PostgreSQL persistent memory (`PostgresSaver`) | 🔄 Planned |
+| Groww live websocket feed (streaming ticks) | 🔄 Planned |
+| Portfolio P&L engine + alerts | 🔄 Planned |
+| F&O / commodity segments | 🔄 Planned |
+| Cloud deployment + scheduled scans | 🔄 Planned |
 
 ---
 
 ## ⚠️ Disclaimer
 
-This is a **paper trading simulation** for educational purposes only. No real money is involved. Always consult a SEBI-registered financial advisor before making actual investment decisions.
+This software can place **real orders with real money** when `GROWW_TRADING_MODE=live`. It is provided for educational and personal-automation use, **without warranty**. Algorithmic/automated trading carries significant financial risk — you are solely responsible for every order it places. Start in **paper mode**, keep `GROWW_MAX_ORDER_VALUE` conservative, review every human-in-the-loop prompt, and consult a SEBI-registered advisor before trading. Not investment advice.
+
+---
+
+Built with 🔱 by **Udit** — *"Har decision mein teen nazar — research ki, trading ki, aur insaan ki."*

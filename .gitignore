@@ -4,3 +4,5 @@ __pycache__/
 tempCodeRunnerFile.py
 bugs.txt
 *.tar
+.groww_token_cache.json
+.groww_instruments.csv

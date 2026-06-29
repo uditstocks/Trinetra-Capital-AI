@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "Human_in_Loop/prebuilt_HITL.py"]
+CMD ["python", "main.py"]

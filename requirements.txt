@@ -1,9 +1,27 @@
+# --- Agent framework ---
 langchain
+langchain-core
+langgraph
+langgraph-supervisor
+
+# --- LLM providers ---
 langchain-nvidia-ai-endpoints
 langchain-groq
 langchain-ollama
-langgraph
-langgraph-supervisor
-langchain-core
+
+# --- Groww broker integration ---
+growwapi>=1.5.0
+pyotp
+
+# --- Market data ---
 yfinance
+
+# --- Technical + sentiment analysis ---
+numpy
+pandas
+requests
+beautifulsoup4
+textblob
+
+# --- Config ---
 python-dotenv
