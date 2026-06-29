@@ -17,6 +17,23 @@ Trinetra Capital AI orchestrates specialised AI agents under a central superviso
 
 ---
 
+## 📚 Documentation
+
+Full, research-grade documentation lives in [`docs/`](docs/) — start at the [Documentation Index](docs/README.md).
+
+| | |
+|---|---|
+| 📄 [Research Paper / Whitepaper](docs/research-paper/RESEARCH_PAPER.md) | Formal academic write-up of the system |
+| 🏗️ [System Architecture](docs/02-system-architecture.md) | Layered design, component map, request lifecycle |
+| 🤖 [Multi-Agent Orchestration](docs/03-multi-agent-system.md) | Supervisor, specialists, routing, HITL |
+| 💹 [Market Data & Quantitative Analytics](docs/05-market-data-and-quant-analytics.md) | Indicators, sentiment, composite scoring |
+| 🛡️ [Safety, Risk & Security](docs/06-safety-risk-and-security.md) | Defence-in-depth controls and the threat model |
+| ⚙️ [Configuration](docs/07-configuration-reference.md) · 🚀 [Installation](docs/08-installation-and-deployment.md) · 💬 [Usage](docs/09-usage-guide.md) · 📖 [API Reference](docs/10-api-reference.md) | Operator & developer references |
+
+See also [CONTRIBUTING.md](CONTRIBUTING.md) and the [CHANGELOG](CHANGELOG.md).
+
+---
+
 ## 🏗️ System Architecture
 
 ```
