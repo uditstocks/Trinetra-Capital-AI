@@ -1,6 +1,6 @@
 # System Architecture
 
-> 🔱 **Trinetra Capital AI** — *Multi-Agents. One Market. Zero Missed Moves.*
+> 🔱 **Trinetra Capital AI**  *Multi-Agents. One Market. Zero Missed Moves.*
 
 This document describes the end-to-end architecture of Trinetra Capital AI, an autonomous multi-agent trading system for Indian equities (NSE/BSE) wired to the Groww Trading API. It establishes the design principles that govern the codebase, presents the layered architecture from the interactive CLI down to external providers, traces two representative request lifecycles (an informational query and a human-approved order), and explains the cross-cutting concerns — dependency direction, caching, and failure recovery — that make the system safe to run against real money. It is grounded strictly in the tracked source code; where the README is aspirational, this document reflects what the code actually does and notes the divergence. Subsystem internals are deferred to the deeper companion documents: see [03-multi-agent-system.md](03-multi-agent-system.md) for orchestration, [04-execution-and-broker-layer.md](04-execution-and-broker-layer.md) for the broker layer, and [05-market-data-and-quant-analytics.md](05-market-data-and-quant-analytics.md) for data and symbol resolution.
 
