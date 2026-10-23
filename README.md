@@ -9,8 +9,8 @@
 
 Trinetra Capital AI orchestrates specialised AI agents under a central supervisor to research stocks, analyse sentiment, and **place real buy/sell orders through your Groww account**. It ships in **paper mode by default** so you can exercise the entire system safely, and flips to **live trading** with a single environment variable.
 
-- 📡 **Live market data** — real-time quotes, LTP and OHLC from Groww (yfinance fallback).
-- 💼 **Real portfolio** — holdings, positions, funds and live P&L from your Groww account.
+- 📡 **Live market data** real-time quotes, LTP and OHLC from Groww (yfinance fallback).
+- 💼 **Real portfolio** holdings, positions, funds and live P&L from your Groww account.
 - 🛒 **Real order execution** — market & limit orders (CNC delivery / MIS intraday) on NSE/BSE.
 - 🛡️ **Human-in-the-loop** — every order/cancel pauses for explicit approval.
 - 🧯 **Safety rails** — paper-by-default, a hard per-order value cap, and a "LIVE" confirmation gate.
